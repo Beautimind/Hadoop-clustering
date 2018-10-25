@@ -3,8 +3,7 @@ import java.util.*;
 import java.lang.Math;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.*;
-import org.apache.hadoop.io.IntWritable;
-import org.apache.hadoop.io.Text;
+import org.apache.hadoop.io.*;;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.mapreduce.Mapper;
 import org.apache.hadoop.mapreduce.Reducer;
@@ -13,7 +12,7 @@ import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 
 public class KMeans {
 
-  private double dist(double[] x1, double[] x2)
+  private static double dist(double[] x1, double[] x2)
   {
     double result=0;
     for(int i=0;i<x1.length;i++)
@@ -23,54 +22,131 @@ public class KMeans {
     return Math.sqrt(result);
   }
 
+  private static boolean equal(double[] x1, double[] x2)
+  {
+    for(int i=0;i<x1.length;i++)
+      if(x1[i]!=x2[i])
+        return false;
+    return true;
+  }
+
   public static class TokenizerMapper
-       extends Mapper<Object, Text, Text, IntWritable>{
+       extends Mapper<Object, Text, IntWritable, Text>{
 
     private final static IntWritable one = new IntWritable(1);
     private Text word = new Text();
     private List<double[]> centroids = new ArrayList();
 
-    //public void setup(Context context) throws IOException {
-      /*BufferReader reader = new BufferReader(new FileReader(centerfile));
-      String line;
-      while(line = reader.readLine()!=null)
-      {
-        String[] data = line.split(" ");
-        float[] pt = new float(data.length);
-        for(int i=0;i<data.length;i++)
-        {
-          pt[i] = Float.ParseFloat(data[i]);
-        }
-        centroids.append(pt);
-      }*/
+    public void setup(Context context) throws IOException {
 
-    //}
+      System.out.println("Setting up the mapper................................");
+      Configuration conf = new Configuration();
+      Path path=new Path("interm/centroids.txt");
+      FileSystem fs = path.getFileSystem(conf);
+      FSDataInputStream inputStream = fs.open(path);
+      BufferedReader br = new BufferedReader(new InputStreamReader(inputStream));
+      String line;
+      while((line = br.readLine())!=null)
+      {
+        System.out.println(line);
+        String[] data = line.split("\t");
+        System.out.println(data.length);
+        double[] pt = new double[data.length-2];
+        for(int i=0;i<pt.length;i++)
+        {
+          pt[i] = Double.parseDouble(data[i+2]);
+        }
+        centroids.add(pt);
+      }
+      br.close();
+    }
     
     public void map(Object key, Text value, Context context
                     ) throws IOException, InterruptedException {
-      /*String[] data=value.toString().split(" ");
-      float[] pt= new float[value.length];
-      for(i=0;i<pt.length;i++)
+
+      System.out.println("in the map function.......................................");
+      String[] data=value.toString().split("\t");
+      System.out.println(data.length);
+      System.out.println(value);
+      double[] pt= new double[data.length-2];
+      for(int i=0;i<pt.length;i++)
       {
-        pt[i]=float.ParseFloat(data[i])
+        pt[i]=Double.parseDouble(data[i+2]);
       }
-      for*/
+      double mind=Double.MAX_VALUE;
+      int mini=-1;
+      for(int i=0;i<centroids.size();i++)
+      {
+        double dis=dist(pt,centroids.get(i));
+        if(dis < mind)
+        {
+          mind = dis;
+          mini=i;
+        }
+      }
+      System.out.println(value.toString());
+      context.write(new IntWritable(mini),value);
     }
   }
 
   public static class IntSumReducer
-       extends Reducer<Text,IntWritable,Text,IntWritable> {
+       extends Reducer<IntWritable,Text,IntWritable,Text> {
     private IntWritable result = new IntWritable();
+    private List<double[]> centroids = new ArrayList();
+    public static enum Counter{
+      CONVERGED;
+    }
 
-    public void reduce(Text key, Iterable<IntWritable> values,
+
+    public void setup(Context context) throws IOException {
+      System.out.println("set up reducer...............................................");
+      Configuration conf = new Configuration();
+      Path path=new Path("interm/centroids.txt");
+      FileSystem fs = path.getFileSystem(conf);
+      FSDataInputStream inputStream = fs.open(path);
+      BufferedReader br = new BufferedReader(new InputStreamReader(inputStream));
+      String line;
+      while((line = br.readLine())!=null)
+      {
+        System.out.println(line);
+        String[] data = line.split("\t");
+        System.out.println(data.length);
+        double[] pt = new double[data.length-2];
+        for(int i=0;i<pt.length;i++)
+        {
+          pt[i] = Double.parseDouble(data[i+2]);
+        }
+        centroids.add(pt);
+      }
+    }
+
+    public void reduce(IntWritable key, Iterable<Text> values,
                        Context context
                        ) throws IOException, InterruptedException {
-      /*int sum = 0;
-      for (IntWritable val : values) {
-        sum += val.get();
+      System.out.println("in the reduce function..........................................");
+      System.out.println("the value of key is"+key.get());
+      double[] value=new double[centroids.get(0).length];
+      double count=0;
+      for (Text val : values) {
+        String[] s=val.toString().split("\t");
+        System.out.println(val);
+        System.out.println(s.length);
+        for(int i=0;i<value.length;i++)
+          value[i]+=Double.parseDouble(s[i+2]);
+        count++;
       }
-      result.set(sum);
-      context.write(key, result);*/
+      for(int i=0;i<value.length;i++)
+        value[i]=value[i]/count;
+
+      if(!equal(value,centroids.get(key.get())))
+      {
+        context.getCounter(Counter.CONVERGED).increment(1l);
+      }
+      String out="0\t";
+      for(int i=0;i<value.length-1;i++)
+        out+=(String.valueOf(value[i]))+"\t";
+      out+=String.valueOf(value[value.length-1]);
+      context.write(key, new Text(out));
     }
   }
 
@@ -81,10 +157,11 @@ public class KMeans {
     //new added code
     //FileSystem fs = FileSystem.get(new Configuration)
     //BufferReader bf=new BufferReader(new InputStreamReader(fs.open())
-    System.out.println("main function!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
-    System.out.println(args[0]);
+    //System.out.println("main function!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+    //System.out.println(args[0]);
 
     //read the data
+    System.out.println("running the first time...............................................................");
     Path path=new Path(args[0]+"/cho.txt");
     FileSystem fs = path.getFileSystem(conf);
     FSDataInputStream inputStream = fs.open(path);
@@ -92,7 +169,7 @@ public class KMeans {
     String line=br.readLine();
     List<String> pts=new ArrayList();
     while(line != null){
-      System.out.println(line);
+      //System.out.println(line);
       pts.add(line);
       line=br.readLine();
     }
@@ -100,7 +177,7 @@ public class KMeans {
     //random select points as initial centroid
     Random rng=new Random();
     Set<Integer> idx = new HashSet();
-    while(idx.size()<5)
+    while(idx.size()<2)
     {
       idx.add(rng.nextInt(pts.size()));
     }
@@ -123,12 +200,46 @@ public class KMeans {
 
     job.setJarByClass(KMeans.class);
     job.setMapperClass(TokenizerMapper.class);
-    job.setCombinerClass(IntSumReducer.class);
+    //Although I can use conbiner and reducer as well, How ever this cause the reducer to run twice which is not right.
+    //job.setCombinerClass(IntSumReducer.class);
     job.setReducerClass(IntSumReducer.class);
-    job.setOutputKeyClass(Text.class);
-    job.setOutputValueClass(IntWritable.class);
+
+    job.setMapOutputKeyClass(IntWritable.class);
+    job.setMapOutputValueClass(Text.class);
+    job.setOutputKeyClass(IntWritable.class);
+    job.setOutputValueClass(Text.class);
     FileInputFormat.addInputPath(job, new Path(args[0]));
     FileOutputFormat.setOutputPath(job, new Path(args[1]));
-    System.exit(job.waitForCompletion(true) ? 0 : 1);
+    //System.exit(job.waitForCompletion(true) ? 0 : 1);
+
+    job.waitForCompletion(true);
+    long counter = job.getCounters().findCounter(IntSumReducer.Counter.CONVERGED).getValue();
+    System.out.printf("Finish getting the counter");
+    while(counter>0)
+    {
+      System.out.printf("running the job again.....................................................");
+      conf=new Configuration();
+      job=Job.getInstance(conf);
+      Path resultfile=new Path("output/part-r-00000");
+      if( fs.exists(outpath))
+        fs.delete(outpath,true);
+      fs.rename(resultfile,outpath);
+      Path resultdir=new Path("output");
+      if(fs.exists(resultdir))
+        fs.delete(resultdir);
+      job.setJarByClass(KMeans.class);
+      job.setMapperClass(TokenizerMapper.class);
+    //Although I can use conbiner and reducer as well, How ever this cause the reducer to run twice which is not right.
+    //job.setCombinerClass(IntSumReducer.class);
+      job.setReducerClass(IntSumReducer.class);
+      job.setMapOutputKeyClass(IntWritable.class);
+      job.setMapOutputValueClass(Text.class);
+      job.setOutputKeyClass(IntWritable.class);
+      job.setOutputValueClass(Text.class);
+      FileInputFormat.addInputPath(job, new Path(args[0]));
+      FileOutputFormat.setOutputPath(job, new Path(args[1]));
+      job.waitForCompletion(true);
+      counter = job.getCounters().findCounter(IntSumReducer.Counter.CONVERGED).getValue();
+    }
   }
 }
