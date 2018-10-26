@@ -66,8 +66,8 @@ public class KMeans {
 
       System.out.println("in the map function.......................................");
       String[] data=value.toString().split("\t");
-      System.out.println(data.length);
-      System.out.println(value);
+      //System.out.println(data.length);
+      //System.out.println(value);
       double[] pt= new double[data.length-2];
       for(int i=0;i<pt.length;i++)
       {
@@ -85,7 +85,9 @@ public class KMeans {
         }
       }
       System.out.println(value.toString());
-      context.write(new IntWritable(mini),value);
+      String out=value.toString();
+      out=out+"\t"+"1.0";
+      context.write(new IntWritable(mini),new Text(out));
     }
   }
 
@@ -129,15 +131,15 @@ public class KMeans {
       double count=0;
       for (Text val : values) {
         String[] s=val.toString().split("\t");
-        System.out.println(val);
-        System.out.println(s.length);
+        //System.out.println(val);
+        //System.out.println(s.length);
         for(int i=0;i<value.length;i++)
           value[i]+=Double.parseDouble(s[i+2]);
-        count++;
+        count+=Double.parseDouble(s[s.length-1]);
       }
       for(int i=0;i<value.length;i++)
         value[i]=value[i]/count;
-
+      System.out.println("the count is "+String.valueOf(count));
       if(!equal(value,centroids.get(key.get())))
       {
         context.getCounter(Counter.CONVERGED).increment(1l);
@@ -150,6 +152,36 @@ public class KMeans {
     }
   }
 
+
+  public static class KMeansCombiner
+       extends Reducer<IntWritable,Text,IntWritable,Text> {
+
+
+    public void reduce(IntWritable key, Iterable<Text> values,
+                       Context context
+                       ) throws IOException, InterruptedException {
+      System.out.println("in the conbine function~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
+      System.out.println("the value of key is"+key.get());
+      double[] value=null;
+      double count=0;
+      for (Text val : values) {
+        String[] s=val.toString().split("\t");
+        //System.out.println(val);
+        System.out.println(s.length);
+        if(value==null)
+          value=new double[s.length-3];
+        for(int i=0;i<value.length;i++)
+          value[i]+=Double.parseDouble(s[i+2]);
+        count+=Double.parseDouble(s[s.length-1]);
+      }
+      System.out.println("the count is "+String.valueOf(count));
+      String out="0\t0\t";
+      for(int i=0;i<value.length;i++)
+        out+=(String.valueOf(value[i]))+"\t";
+      out+=String.valueOf(count);
+      context.write(key, new Text(out));
+    }
+  }
   public static void main(String[] args) throws Exception {
     Configuration conf = new Configuration();
     Job job = Job.getInstance(conf, "KMeans");
@@ -177,7 +209,7 @@ public class KMeans {
     //random select points as initial centroid
     Random rng=new Random();
     Set<Integer> idx = new HashSet();
-    while(idx.size()<2)
+    while(idx.size()<5)
     {
       idx.add(rng.nextInt(pts.size()));
     }
@@ -201,7 +233,7 @@ public class KMeans {
     job.setJarByClass(KMeans.class);
     job.setMapperClass(TokenizerMapper.class);
     //Although I can use conbiner and reducer as well, How ever this cause the reducer to run twice which is not right.
-    //job.setCombinerClass(IntSumReducer.class);
+    job.setCombinerClass(KMeansCombiner.class);
     job.setReducerClass(IntSumReducer.class);
 
     job.setMapOutputKeyClass(IntWritable.class);
@@ -230,7 +262,7 @@ public class KMeans {
       job.setJarByClass(KMeans.class);
       job.setMapperClass(TokenizerMapper.class);
     //Although I can use conbiner and reducer as well, How ever this cause the reducer to run twice which is not right.
-    //job.setCombinerClass(IntSumReducer.class);
+      job.setCombinerClass(KMeansCombiner.class);
       job.setReducerClass(IntSumReducer.class);
       job.setMapOutputKeyClass(IntWritable.class);
       job.setMapOutputValueClass(Text.class);
