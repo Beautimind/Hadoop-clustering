@@ -194,6 +194,7 @@ public class KMeans {
 
     //read the data
     System.out.println("running the first time...............................................................");
+    //change here to change the input files !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     Path path=new Path(args[0]+"/cho.txt");
     FileSystem fs = path.getFileSystem(conf);
     FSDataInputStream inputStream = fs.open(path);
@@ -209,6 +210,7 @@ public class KMeans {
     //random select points as initial centroid
     Random rng=new Random();
     Set<Integer> idx = new HashSet();
+    //change here to change the number of clusters!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     while(idx.size()<5)
     {
       idx.add(rng.nextInt(pts.size()));
@@ -273,5 +275,64 @@ public class KMeans {
       job.waitForCompletion(true);
       counter = job.getCounters().findCounter(IntSumReducer.Counter.CONVERGED).getValue();
     }
+
+    //reassign the points according to the cluster.
+    System.out.println("begin to write clustering result!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+    //read the centroid
+    List<double[]> centroids=new ArrayList();
+    conf = new Configuration();
+    path=new Path("interm/centroids.txt");
+    fs = path.getFileSystem(conf);
+    inputStream = fs.open(path);
+    br = new BufferedReader(new InputStreamReader(inputStream));
+    while((line = br.readLine())!=null)
+    {
+      System.out.println(line);
+      String[] data = line.split("\t");
+      System.out.println(data.length);
+      double[] pt = new double[data.length-2];
+      for(int i=0;i<pt.length;i++)
+          pt[i] = Double.parseDouble(data[i+2]);
+      centroids.add(pt);
+    }
+    br.close();
+
+    //classify the point
+    List<Integer> tags=new ArrayList();
+    path=new Path(args[0]+"/cho.txt");
+    fs = path.getFileSystem(conf);
+    inputStream = fs.open(path);
+    br = new BufferedReader(new InputStreamReader(inputStream));
+    while((line=br.readLine())!= null){
+      System.out.println(line);
+      String[] data = line.split("\t");
+      double[] pt = new double[data.length-2];
+      for(int i=0;i<pt.length;i++)
+          pt[i] = Double.parseDouble(data[i+2]);
+      int minidx=-1;
+      double mindist= Double.MAX_VALUE;
+      for(int i=0;i<centroids.size();i++)
+        if (dist(pt,centroids.get(i))<mindist)
+        {
+          mindist=dist(pt,centroids.get(i));
+          minidx=i;
+        }
+      tags.add(minidx);
+    }
+
+    //write the result 
+    outpath=new Path(args[1]+"/tag.txt");
+    fs = path.getFileSystem(conf);
+    if( fs.exists(outpath))
+      fs.delete(outpath,true);
+    outputStream = fs.create(outpath);
+    bw = new BufferedWriter(new OutputStreamWriter(outputStream));
+    for(int i: tags)
+    {
+      bw.write(Integer.toString(i));
+      bw.newLine();
+    }
+    bw.close();
+
   }
 }
